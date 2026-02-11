@@ -199,4 +199,5 @@ curl -X POST "http://127.0.0.1:8000/qa" \
 - **health 中 neo4j 为 false**：检查 Neo4j 是否已启动，以及 `config.yaml` 中 `neo4j` 的 uri/用户名密码是否正确。  
 - **检索不到图谱信息**：确认已通过数据导入流程向 Neo4j 写入过三元组，且问句中包含与图谱中实体相关的关键词。
 
-更多模块接口说明见 `docs/module_interfaces.md`，整体设计可参考项目根目录的 `info.md`。
+更多模块接口说明见 `docs/module_interfaces.md`。
+
