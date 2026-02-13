@@ -1,115 +1,291 @@
-# Neo4j 数据加载：连接与三元组/子图写入
-from typing import List, Dict, Any, Optional, Tuple
+import json
+import csv
+import logging
+from pathlib import Path
+from typing import List, Dict, Any
+from neo4j import GraphDatabase
 
-Triple = Tuple[str, str, str]
-
-
-def _serialize_value(v: Any) -> Any:
-    """将 py2neo Node/Relationship 转为可序列化 dict。"""
-    if v is None:
-        return None
-    cls_name = type(v).__name__
-    if cls_name == "Node":
-        labels = list(v.labels) if hasattr(v, "labels") else []
-        props = dict(v) if hasattr(v, "keys") else {}
-        return {"_type": "Node", "labels": labels, "properties": props}
-    if cls_name == "Relationship":
-        rel_type = type(v).__name__ if hasattr(v, "__class__") else "REL"
-        props = dict(v) if hasattr(v, "keys") else {}
-        return {"_type": "Relationship", "type": rel_type, "properties": props}
-    if isinstance(v, (list, tuple)):
-        return [_serialize_value(x) for x in v]
-    if isinstance(v, dict):
-        return {k: _serialize_value(x) for k, x in v.items()}
-    return v
-
+from src.utils.config_loader import config, get_project_root
+from src.utils.logger import logger
 
 class Neo4jLoader:
-    """Neo4j 加载器：连接数据库，写入节点与关系。"""
-
-    def __init__(
-        self,
-        uri: str = "bolt://localhost:7687",
-        username: str = "neo4j",
-        password: str = "password",
-    ):
-        self.uri = uri
-        self.username = username
-        self.password = password
-        self._graph = None
-
-    def connect(self) -> None:
-        """建立 Neo4j 连接。"""
+    def __init__(self):
+        self.uri = config.get("neo4j", {}).get("uri", "bolt://localhost:7687")
+        self.username = config.get("neo4j", {}).get("username", "neo4j")
+        self.password = config.get("neo4j", {}).get("password", "password")
+        
         try:
-            from py2neo import Graph
-            self._graph = Graph(self.uri, auth=(self.username, self.password))
+            self.driver = GraphDatabase.driver(self.uri, auth=(self.username, self.password))
+            self.verify_connection()
+            logger.info(f"Successfully connected to Neo4j at {self.uri}")
         except Exception as e:
-            raise RuntimeError(f"Neo4j 连接失败: {e}") from e
+            logger.error(f"Failed to connect to Neo4j: {e}")
+            logger.error("Please check your Neo4j credentials in config.yaml or environment variables.")
+            raise
 
-    def close(self) -> None:
-        """关闭连接。"""
-        self._graph = None
+    def clear_database(self):
+        """清空数据库中的所有节点和关系（慎用）"""
+        logger.warning("Clearing entire database...")
+        with self.driver.session() as session:
+            session.run("MATCH (n) DETACH DELETE n")
+        logger.info("Database cleared.")
 
-    def __enter__(self) -> "Neo4jLoader":
-        self.connect()
-        return self
+    def verify_connection(self):
+        with self.driver.session() as session:
+            session.run("RETURN 1")
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        self.close()
+    def close(self):
+        if self.driver:
+            self.driver.close()
+            logger.info("Neo4j connection closed.")
 
-    @property
-    def graph(self):
-        """获取 py2neo Graph，未连接则先连接。"""
-        if self._graph is None:
-            self.connect()
-        return self._graph
+    def create_constraints(self):
+        """创建唯一性约束，确保节点名称唯一"""
+        constraints = [
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (n:Disease) REQUIRE n.name IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (n:Drug) REQUIRE n.name IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (n:Symptom) REQUIRE n.name IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (n:NursingHome) REQUIRE n.name IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (n:Insurance) REQUIRE n.name IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (n:Department) REQUIRE n.name IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (n:Population) REQUIRE n.name IS UNIQUE"
+        ]
+        
+        with self.driver.session() as session:
+            for query in constraints:
+                try:
+                    session.run(query)
+                    logger.info(f"Constraint created/verified: {query}")
+                except Exception as e:
+                    logger.warning(f"Failed to create constraint: {e}")
 
-    def create_constraints_and_indexes(self, ontology: Any) -> None:
-        """根据本体设计创建唯一约束与索引。"""
-        labels = getattr(ontology, "get_entity_labels", lambda: [])()
-        for label in labels:
-            try:
-                self.graph.run(f"CREATE CONSTRAINT IF NOT EXISTS FOR (n:{label}) REQUIRE n.name IS UNIQUE").consume()
-            except Exception:
-                pass
+    def load_all(self):
+        """执行所有数据加载任务"""
+        self.clear_database()  # 根据用户要求，先清空数据库
+        self.create_constraints()
+        
+        project_root = get_project_root()
+        data_cleaned_dir = project_root / "DataCleaned"
+        
+        if not data_cleaned_dir.exists():
+            logger.error(f"Data directory not found: {data_cleaned_dir}")
+            return
 
-    def load_triples(
-        self,
-        triples: List[Triple],
-        head_label: Optional[str] = None,
-        tail_label: Optional[str] = None,
-        merge: bool = True,
-    ) -> int:
-        """批量写入三元组。"""
-        count = 0
-        for h, rel, t in triples:
-            try:
-                if merge:
-                    self.graph.run(
-                        "MERGE (a {name: $h}) MERGE (b {name: $t}) MERGE (a)-[r:" + rel + "]->(b)",
-                        h=h, t=t
-                    )
-                else:
-                    self.graph.run(
-                        "CREATE (a {name: $h})-[:%s]->(b {name: $t})" % rel, h=h, t=t
-                    )
-                count += 1
-            except Exception:
-                continue
-        return count
+        self._load_diseases(data_cleaned_dir / "中老年疾病目录" / "diseases.json")
+        self._load_drugs(data_cleaned_dir / "医保药品目录" / "medicine.json")
+        self._load_nursing_homes(data_cleaned_dir / "养老机构数据" / "nursing_homes.csv")
+        self._load_insurances(data_cleaned_dir / "医疗保险数据" / "insurance_info.json")
 
-    def clear_graph(self) -> None:
-        """清空图数据（慎用）。"""
-        self.graph.run("MATCH (n) DETACH DELETE n").consume()
+    def _load_diseases(self, file_path: Path):
+        if not file_path.exists():
+            logger.warning(f"File not found: {file_path}")
+            return
 
-    def run_cypher(self, query: str, parameters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        """执行 Cypher 查询，返回可序列化的记录列表。"""
-        params = parameters or {}
-        cursor = self.graph.run(query, **params)
-        out = []
-        for record in cursor:
-            row = {}
-            for key in record.keys():
-                row[key] = _serialize_value(record[key])
-            out.append(row)
-        return out
+        logger.info(f"Loading diseases from {file_path}...")
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        # 预处理数据
+        processed_data = []
+        for item in data:
+            # 提取主要属性
+            props = {
+                "name": item.get("name"),
+                "icd_code": item.get("icd_code"),
+                "intro": item.get("intro"),
+                "get_prob": item.get("get_prob"),
+                "easy_get": item.get("easy_get"),
+                "get_way": item.get("get_way"),
+                "cause": item.get("cause"),
+                "prevent": item.get("prevent"),
+                "nursing": item.get("nursing"),
+                "treat_detail": item.get("treat_detail")
+            }
+            
+            # 提取关系数据
+            symptoms = item.get("symptom", [])
+            drugs = item.get("drug", [])
+            neopathy = item.get("neopathy", [])
+            dept = item.get("cure_dept", "").strip()
+            
+            processed_data.append({
+                "props": props,
+                "symptoms": symptoms,
+                "drugs": drugs,
+                "neopathy": neopathy,
+                "dept": dept
+            })
+
+        # 批量写入
+        query = """
+        UNWIND $batch AS row
+        MERGE (d:Disease {name: row.props.name})
+        SET d += row.props
+        
+        // Disease -> Symptom
+        FOREACH (s_name IN row.symptoms | 
+            MERGE (s:Symptom {name: s_name})
+            MERGE (d)-[:HAS_SYMPTOM]->(s)
+        )
+        
+        // Disease -> Department
+        FOREACH (ignore IN CASE WHEN row.dept <> "" THEN [1] ELSE [] END |
+            MERGE (dept:Department {name: row.dept})
+            MERGE (d)-[:BELONGS_TO_DEPT]->(dept)
+        )
+        
+        // Disease -> Drug (TREATED_BY)
+        FOREACH (d_name IN row.drugs |
+            MERGE (dg:Drug {name: d_name})
+            MERGE (d)-[:TREATED_BY]->(dg)
+        )
+        
+        // Disease -> Disease (Complication)
+        FOREACH (n_name IN row.neopathy |
+            MERGE (nd:Disease {name: n_name})
+            MERGE (d)-[:HAS_COMPLICATION]->(nd)
+        )
+        """
+        
+        self._batch_run(query, processed_data, "Diseases")
+
+    def _load_drugs(self, file_path: Path):
+        if not file_path.exists():
+            logger.warning(f"File not found: {file_path}")
+            return
+
+        logger.info(f"Loading medicines from {file_path}...")
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        processed_data = []
+        # medicine.json 结构： {"西药部分": {"medicines": [...]}, ...}
+        for category_name, content in data.items():
+            medicines = content.get("medicines", [])
+            for med in medicines:
+                props = {
+                    "name": med.get("name"),
+                    "category_code": med.get("category_code"),
+                    "subcategory_name": med.get("subcategory_name"),
+                    "dosage": med.get("dosage"),
+                    "reimbursement_category": med.get("reimbursement_category")
+                }
+                processed_data.append(props)
+
+        query = """
+        UNWIND $batch AS row
+        MERGE (d:Drug {name: row.name})
+        SET d += row
+        """
+        
+        self._batch_run(query, processed_data, "Drugs")
+
+    def _load_nursing_homes(self, file_path: Path):
+        if not file_path.exists():
+            logger.warning(f"File not found: {file_path}")
+            return
+
+        logger.info(f"Loading nursing homes from {file_path}...")
+        processed_data = []
+        with open(file_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                name = row.get("名称")
+                if not name or not name.strip():
+                    continue
+
+                # 映射 CSV 列名到英文属性
+                props = {
+                    "name": name.strip(),
+                    "city": row.get("城市"),
+                    "nature": row.get("性质"),
+                    "beds": row.get("床位"),
+                    "price": row.get("价格(元/月)"),
+                    "address": row.get("地址"),
+                    "services": row.get("特色服务")
+                }
+                processed_data.append(props)
+
+        query = """
+        UNWIND $batch AS row
+        MERGE (n:NursingHome {name: row.name})
+        SET n += row
+        """
+        
+        self._batch_run(query, processed_data, "NursingHomes")
+
+    def _load_insurances(self, file_path: Path):
+        if not file_path.exists():
+            logger.warning(f"File not found: {file_path}")
+            return
+
+        logger.info(f"Loading insurance info from {file_path}...")
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        processed_data = []
+        for item in data:
+            props = {
+                "name": item.get("产品名称"),
+                "category": item.get("险种分类"),
+                "company": item.get("承保公司"),
+                "age_limit": item.get("承保年龄"),
+                "duration": item.get("保障期限"),
+                "price_desc": item.get("价格"),
+                "description": item.get("产品描述", "")
+            }
+            processed_data.append(props)
+
+        # 尝试建立简单的跨域关联
+        # 1. 如果承保年龄包含 "老年" 或 "60" 以上，关联到 Population(老年人)
+        # 2. 如果描述中包含常见慢性病（如高血压、糖尿病），关联到 Disease
+        
+        query = """
+        UNWIND $batch AS row
+        MERGE (i:Insurance {name: row.name})
+        SET i += row
+        
+        // Link to Population
+        FOREACH (ignore IN CASE WHEN row.age_limit CONTAINS '老年' OR row.age_limit CONTAINS '60' THEN [1] ELSE [] END |
+            MERGE (p:Population {name: '老年人'})
+            MERGE (i)-[:TARGETS_POPULATION]->(p)
+        )
+        
+        // Simple Link to common diseases based on description
+        FOREACH (ignore IN CASE WHEN row.description CONTAINS '高血压' THEN [1] ELSE [] END |
+            MERGE (d:Disease {name: '高血压'})
+            MERGE (i)-[:COVERS_DISEASE]->(d)
+        )
+        FOREACH (ignore IN CASE WHEN row.description CONTAINS '糖尿病' THEN [1] ELSE [] END |
+            MERGE (d:Disease {name: '糖尿病'})
+            MERGE (i)-[:COVERS_DISEASE]->(d)
+        )
+         FOREACH (ignore IN CASE WHEN row.description CONTAINS '癌症' OR row.description CONTAINS '恶性肿瘤' THEN [1] ELSE [] END |
+            MERGE (d:Disease {name: '恶性肿瘤'}) // 假设有一个通用节点，或者这里只是简单示例
+            MERGE (i)-[:COVERS_DISEASE]->(d)
+        )
+        """
+        
+        self._batch_run(query, processed_data, "Insurances")
+
+    def _batch_run(self, query, data, label, batch_size=1000):
+        total = len(data)
+        logger.info(f"Starting import for {label}. Total records: {total}")
+        
+        with self.driver.session() as session:
+            for i in range(0, total, batch_size):
+                batch = data[i:i + batch_size]
+                try:
+                    session.run(query, batch=batch)
+                    logger.info(f"Imported {label}: {min(i + batch_size, total)}/{total}")
+                except Exception as e:
+                    logger.error(f"Error importing batch {i//batch_size} for {label}: {e}")
+        
+        logger.info(f"Finished importing {label}")
+
+if __name__ == "__main__":
+    loader = Neo4jLoader()
+    try:
+        loader.load_all()
+    finally:
+        loader.close()

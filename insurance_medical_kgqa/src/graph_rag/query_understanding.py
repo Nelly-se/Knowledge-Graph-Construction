@@ -1,55 +1,74 @@
-# 查询理解：用户问句解析与意图/实体识别
-import re
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
+import json
+from openai import OpenAI
+from src.utils.config_loader import config
+from src.utils.logger import logger
 
+class QueryParser:
+    def __init__(self):
+        self.api_key = config.get("OPENAI_API_KEY")
+        self.base_url = config.get("OPENAI_BASE_URL")
+        
+        if not self.api_key:
+            logger.warning("OPENAI_API_KEY not found in config. Query understanding may fail.")
+            
+        self.client = OpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url
+        )
 
-@dataclass
-class QueryIntent:
-    """查询意图与抽取结果。"""
-    raw_question: str
-    intent: str
-    entities: List[str]
-    keywords: List[str]
+    def parse(self, user_query: str) -> dict:
+        """
+        调用 LLM 将用户问题解析为结构化关键词。
+        """
+        system_prompt = """
+        你是一个医疗与保险领域的知识图谱助手。请提取用户问题中的关键实体和意图，并以 JSON 格式返回。
+        
+        支持提取的字段包括：
+        - disease: 疾病名称（列表），如 ["高血压", "糖尿病"]
+        - symptom: 症状（列表），如 ["头痛", "胸闷"]
+        - drug: 药品名称（列表）
+        - age: 年龄（数字），如 70
+        - city: 城市名称（字符串），用于养老院查询
+        - intent: 用户意图，可选值：
+            - "treatment" (询问治疗/药品)
+            - "insurance_query" (询问保险产品)
+            - "nursing_home_search" (寻找养老院)
+            - "complication_query" (询问并发症)
+            - "general_qa" (其他)
+            
+        示例：
+        用户输入："70岁高血压能买什么险"
+        输出：{"age": 70, "disease": ["高血压"], "intent": "insurance_query"}
+        
+        用户输入："北京有哪些价格在5000以下的养老院"
+        输出：{"city": "北京", "price_max": 5000, "intent": "nursing_home_search"}
+        
+        如果未找到相关信息，字段可省略或设为 null/空列表。仅返回 JSON 字符串，不要包含 Markdown 格式。
+        """
 
+        try:
+            logger.info(f"Parsing query: {user_query}")
+            response = self.client.chat.completions.create(
+                model="deepseek-chat",  # 假设使用 deepseek-chat，根据实际情况调整
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_query}
+                ],
+                temperature=0.1,
+                response_format={"type": "json_object"}
+            )
+            
+            content = response.choices[0].message.content
+            logger.info(f"LLM Parse Result: {content}")
+            return json.loads(content)
+            
+        except Exception as e:
+            logger.error(f"Error parsing query with LLM: {e}")
+            # Fallback: 简单的关键词匹配（可选）
+            return {"intent": "general_qa", "original_query": user_query}
 
-# 简单意图关键词映射（可后续替换为分类模型）
-INTENT_KEYWORDS = {
-    "insurance_coverage": ["保险", "覆盖", "保什么", "赔", "理赔", "产品"],
-    "drug_query": ["药", "药物", "治疗", "服用", "疗效"],
-    "elderly_service": ["养老", "护理", "照护", "老人", "康养"],
-    "disease_query": ["病", "疾病", "症状", "诊断", "患病"],
-}
-
-
-class QueryUnderstanding:
-    """查询理解：从用户问句解析意图与实体，供图谱检索使用。"""
-
-    def __init__(self, ner_model: Optional[Any] = None, intent_labels: Optional[List[str]] = None):
-        self.ner_model = ner_model
-        self.intent_labels = intent_labels or list(INTENT_KEYWORDS.keys())
-
-    def parse(self, question: str) -> QueryIntent:
-        """解析用户问句，得到意图与实体。"""
-        question = (question or "").strip()
-        # 简单关键词意图
-        intent = "general"
-        for label, keywords in INTENT_KEYWORDS.items():
-            if any(k in question for k in keywords):
-                intent = label
-                break
-        # 简单实体抽取：2~10 个连续中文字符或英文词，过滤纯数字与停用词
-        stop = {"什么", "哪些", "如何", "怎么", "可以", "有没有", "是否", "的", "了", "吗", "呢"}
-        words = re.findall(r"[\u4e00-\u9fa5]{2,10}|[A-Za-z0-9]+", question)
-        entities = [w for w in words if w not in stop and not w.isdigit()]
-        # 若没有明显实体，将整句关键词作为检索词（便于全文/名称匹配）
-        if not entities:
-            entities = [question[:20]] if question else []
-        keywords = list(entities[:5])
-        return QueryIntent(raw_question=question, intent=intent, entities=entities, keywords=keywords)
-
-    def get_entities(self, question: str) -> List[str]:
-        return self.parse(question).entities
-
-    def get_intent(self, question: str) -> str:
-        return self.parse(question).intent
+if __name__ == "__main__":
+    # 测试代码
+    parser = QueryParser()
+    test_query = "70岁高血压能买什么险"
+    print(json.dumps(parser.parse(test_query), ensure_ascii=False, indent=2))

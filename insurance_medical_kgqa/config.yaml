@@ -1,13 +1,14 @@
 neo4j:
   uri: "bolt://localhost:7687"
   username: "neo4j"
-  password: "password"
+  password: "${NEO4J_PASSWORD}" # Use environment variable
 
 llm:
   model_type: "local"  # local 或 api
   local_model_path: "./models/Qwen-1.8B-Chat"
-  api_key: "your_api_key"
-
+  
+OPENAI_API_KEY: "${OPENAI_API_KEY}" # Use environment variable
+OPENAI_BASE_URL: "https://api.deepseek.com"
 data_sources:
   medical:
     - "data/raw/icd_codes.csv"

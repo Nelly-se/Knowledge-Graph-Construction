@@ -3,6 +3,7 @@ uvicorn==0.24.0
 pyyaml>=6.0
 streamlit==1.28.0
 py2neo==2021.2.3
+neo4j>=5.14.0
 pandas==2.0.3
 hanlp==2.1.0
 transformers==4.35.0
