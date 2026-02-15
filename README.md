@@ -1,158 +1,203 @@
-# 泰康医养知识图谱问答系统 (Insurance & Medical KGQA)
+# 🏥 泰康医养知识图谱智能问答系统 (Insurance-Medical-KGQA) 
 
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
-[![Neo4j](https://img.shields.io/badge/Neo4j-5.x-green)](https://neo4j.com/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109%2B-teal)](https://fastapi.tiangolo.com/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.31%2B-red)](https://streamlit.io/)
+> **基于 GraphRAG 的跨领域垂直知识图谱问答系统** > 整合 **保险产品**、**疾病医疗**、**养老机构** 三大领域数据，利用 Neo4j 图数据库与大语言模型（LLM）实现精准的智能问答与推荐。
 
-本项目旨在构建一个垂直领域的智能问答系统，整合**泰康保险产品**、**医疗疾病**、**药品**及**养老机构**等多源数据，利用**知识图谱 (Knowledge Graph)** 和 **大语言模型 (LLM)** 技术（GraphRAG），提供专业、精准的医养保险咨询服务。
+## 🌟 项目亮点
 
----
-
-## 🚀 项目亮点 (MVP 1.0)
-
-*   **多源异构数据融合**：整合了结构化数据（养老院 CSV）、半结构化数据（疾病/药品 JSON）和非结构化文本。
-*   **知识图谱构建**：基于 Neo4j 构建包含 Disease, Drug, Symptom, NursingHome, Insurance 等核心实体的图谱。
-*   **GraphRAG 引擎**：结合意图识别（Query Understanding）和图谱检索（Graph Retrieval），增强 LLM 的事实准确性。
-*   **全栈交互体验**：提供 FastAPI 后端接口与 Streamlit 可视化对话界面，支持知识溯源展示。
-*   **隐私安全**：敏感配置（API Key, DB Password）与代码分离，支持 `.env` 环境配置。
+* **GraphRAG 架构**：结合知识图谱的结构化检索与大模型的语义理解，解决 LLM 在垂直领域的幻觉问题。
+* **多源数据融合**：打通了“疾病-药品”、“疾病-保险”、“老人-养老院”的数据链路。
+* **精准推荐算法**：基于用户画像（年龄、疾病历史）的保险与养老机构推荐算法（支持精准年龄校验）。
+* **企业级安全规范**：采用 `.env` 环境变量管理敏感密钥，杜绝硬编码安全隐患。
+* **现代化 UI 交互**：基于 Streamlit 构建的适老化、卡片式医疗专业前端界面。
 
 ---
 
-## 📂 目录结构
+## 🛠️ 技术栈
 
-```plaintext
-Knowledge-Graph-Construction/
-├── DataCleaned/                # 清洗后的数据源
-│   ├── 中老年疾病目录/
-│   ├── 养老机构数据/
-│   ├── 医保药品目录/
-│   └── 医疗保险数据/
-├── Documents/                  # 项目文档
-├── insurance_medical_kgqa/     # 核心代码库
-│   ├── frontend/               # 前端应用 (Streamlit)
-│   │   └── app.py
-│   ├── src/
-│   │   ├── api/                # 后端接口 (FastAPI)
-│   │   ├── graph_rag/          # RAG 核心引擎 (意图识别, 图检索)
-│   │   ├── kg_construction/    # 图谱构建脚本
-│   │   └── utils/              # 工具模块 (配置, 日志)
-│   ├── config.yaml             # 公共配置文件
-│   ├── .env.example            # 环境变量模板
-│   └── .gitignore
-└── README.md
+| 模块          | 技术选型                 | 说明                                      |
+| :------------ | :----------------------- | :---------------------------------------- |
+| **知识图谱**  | **Neo4j**                | 图数据存储与 Cypher 查询                  |
+| **大模型**    | **Qwen (通义千问)**      | 通过阿里云百炼 API 调用 (OpenAI 兼容协议) |
+| **后端框架**  | **FastAPI**              | 高性能异步 REST API                       |
+| **前端界面**  | **Streamlit**            | 数据可视化与交互界面 (Custom CSS 优化)    |
+| **驱动/工具** | `neo4j-driver`, `openai` | Python SDK                                |
+
+---
+
+
+
+## 📂 项目目录结构
+
+```
+insurance_medical_kgqa/
+├── .env                  # [新增] 敏感环境变量（API Key, 数据库密码），切勿上传！
+├── .gitignore            # Git 忽略规则配置
+├── config.yaml           # [更新] 公共配置文件（模型名称、数据路径、服务地址）
+├── requirements.txt      # Python 依赖列表
+├── README.md             # 项目说明文档
+│
+├── DataCleaned/          # 清洗后的结构化数据
+│   ├── Diseases/         # 疾病数据
+│   ├── Drugs/            # 药品数据
+│   ├── Insurance/        # 保险产品数据
+│   └── NursingHomes/     # 养老院数据
+│
+├── frontend/             # 前端应用
+│   └── streamlit_app.py  # Streamlit 启动入口（含 UI 优化逻辑）
+│
+└── src/                  # 核心源代码
+    ├── api/              # API 接口层
+    │   └── main.py       # FastAPI 启动入口
+    │
+    ├── graph_rag/        # RAG 核心引擎
+    │   ├── graph_retriever.py    # 图谱检索器（含随机排序与精准过滤）
+    │   ├── query_understanding.py # 意图识别模块
+    │   ├── rag_engine.py         # 问答流程控制
+    │   └── llm_integration.py    # [重构] LLM 统一调用接口（自动读取 .env）
+    │
+    ├── kg_construction/  # 图谱构建模块
+    │   └── neo4j_loader.py       # 数据导入脚本
+    │
+    └── utils/            # 通用工具
+        ├── config_loader.py      # 配置加载器
+        └── logger.py             # 日志模块
 ```
 
----
+------
 
-## 🛠️ 安装与配置
+## 🚀 快速开始 (Quick Start)
 
 ### 1. 环境准备
 
-确保已安装以下软件：
-*   **Python 3.8+**
-*   **Neo4j Desktop** (或服务器版)
-*   **Git**
+推荐使用 Python 3.10 或 3.11 版本。
 
-### 2. 安装依赖
+Bash
 
-```bash
-cd insurance_medical_kgqa
+```
+# 创建虚拟环境
+python -m venv venv
+
+# 激活虚拟环境 (Windows)
+venv\Scripts\activate
+
+# 安装依赖
 pip install -r requirements.txt
-# 如果暂无 requirements.txt，可手动安装核心依赖:
-pip install fastapi uvicorn streamlit openai neo4j requests python-dotenv pyyaml pandas
 ```
 
-### 3. 配置敏感信息
+### 2. 安全配置 (至关重要！⚠️)
 
-项目使用 `.env` 文件管理敏感信息。请复制模板并填入您的真实配置：
+本项目不再将密钥明文写入 `config.yaml`。请在项目根目录下新建一个名为 `.env` 的文件，并填入你的私密信息：
 
-```bash
-# 进入代码目录
-cd insurance_medical_kgqa
+**`.env` 文件内容示例：**
 
-# 复制模板
-cp .env.example .env
+Ini, TOML
 
-# 编辑 .env 文件，填入您的 API Key 和 Neo4j 密码
-# Windows 用户可用记事本打开 .env 编辑
+```
+# Neo4j 数据库密码
+NEO4J_PASSWORD=你的数据库密码
+
+# 阿里云百炼 API Key
+DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-`.env` 文件内容示例：
-```ini
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=your_secure_password
+> **注意**：`.env` 文件已被加入 `.gitignore`，请确保不要将其上传到 GitHub。
 
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
-OPENAI_BASE_URL=https://api.deepseek.com
+### 3. 公共配置 (`config.yaml`)
+
+`config.yaml` 仅用于配置非敏感信息，如模型名称、服务地址等。
+
+YAML
+
+```
+neo4j:
+  uri: "bolt://localhost:7687"
+  username: "neo4j"
+  # password: 由 .env 管理
+
+llm:
+  model_type: "api"
+  api_base: "[https://dashscope.aliyuncs.com/compatible-mode/v1](https://dashscope.aliyuncs.com/compatible-mode/v1)"
+  model_name: "qwen-turbo"  # 可随时更改模型，如 qwen-max
+  # api_key: 由 .env 管理
 ```
 
----
+------
 
-## 🏃‍♂️ 运行指南
+## 🏃‍♂️ 启动服务
 
-### 1. 构建知识图谱 (数据导入)
+本项目采用**前后端分离**架构，启动时需要打开 **3个** 独立的终端窗口。
 
-确保 Neo4j 服务已启动，然后运行导入脚本：
+### 第一步：启动 Neo4j 数据库
 
-```bash
-cd insurance_medical_kgqa
-python -m src.kg_construction.neo4j_loader
+确保你的 Neo4j Desktop 或服务已开启。
+
+Bash
+
 ```
-*该脚本会将 DataCleaned 目录下的数据批量导入 Neo4j 数据库。*
-
-### 2. 启动服务
-
-建议开启两个终端窗口，分别启动后端和前端。
-
-**终端 1: 启动后端 API**
-```bash
-cd insurance_medical_kgqa
-python -m src.api.main
+neo4j console
 ```
-*   API 文档地址: http://localhost:8000/docs
 
-**终端 2: 启动前端界面**
-```bash
-cd insurance_medical_kgqa
-streamlit run frontend/app.py
+### 第二步：启动后端 API (FastAPI)
+
+在项目根目录下运行：
+
+Bash
+
 ```
-*   访问地址: http://localhost:8501
+uvicorn src.api.main:app --reload
+```
 
----
+- 成功标志：看到 `Application startup complete`。
+- API 文档地址：http://127.0.0.1:8000/docs
 
-## 💡 使用示例
+### 第三步：启动前端界面 (Streamlit)
 
-启动 Streamlit 界面后，您可以尝试询问：
+在项目根目录下运行：
 
-*   **疾病查询**: "高血压有哪些并发症？"
-*   **药品咨询**: "治疗糖尿病的常用药有哪些？"
-*   **养老推荐**: "北京价格5000以下的养老院"
-*   **保险建议**: "70岁老人适合买什么保险？"
+Bash
 
-系统将展示 AI 的回答，并在下方折叠框中显示**知识图谱溯源 (Reference)**，列出检索到的三元组信息。
+```
+streamlit run frontend/streamlit_app.py
+```
 
----
+- 成功标志：浏览器自动打开 http://localhost:8501。
 
-## 🏗️ 技术栈详情
+------
 
-*   **图数据库**: Neo4j (Cypher Query Language)
-*   **后端框架**: FastAPI (Python)
-*   **前端框架**: Streamlit
-*   **LLM 集成**: OpenAI SDK (适配 DeepSeek / GPT)
-*   **配置管理**: Python-dotenv + PyYAML
+## 📝 使用指南
 
----
+1. **问保险**：
+   - *"70岁高血压老人推荐买什么保险？"*
+   - 系统会自动校验年龄限制，并优先检索适合高龄人群的“防癌险”或“特药险”，避免推荐超龄产品。
+2. **问养老**：
+   - *"北京价格5000元以下的养老院有哪些？"*
+3. **问医疗**：
+   - *"糖尿病有哪些并发症？"*
 
-## 📝 待办事项 (TODO)
+------
 
-- [ ] 增加更多种类的保险产品数据
-- [ ] 优化多轮对话的上下文记忆
-- [ ] 引入向量检索 (Vector Search) 增强非结构化文本的召回
-- [ ] 部署至 Docker 容器
+## 🔧 常见问题 (Troubleshooting)
 
----
+**Q1: 启动后端报错 `OPENAI_API_KEY not found` 或 `Auth Error`？**
 
-**Author**: 刘畅
-**Date**: 2026-02
+- 检查项目根目录下是否有 `.env` 文件。
+- 检查 `.env` 中的变量名是否为 `DASHSCOPE_API_KEY`。
+- 确保 `llm_integration.py` 中已正确引入 `load_dotenv()`。
+
+**Q2: 前端报错 `st.columns argument must be positive integer`？**
+
+- 这是由于检索结果为空导致的渲染错误。最新版代码已修复此问题，请确保拉取了最新的 `streamlit_app.py`。
+
+**Q3: 推荐的保险总是那几款？**
+
+- 我们在 `graph_retriever.py` 中加入了 `ORDER BY rand()` 机制，每次检索会随机打乱同类产品，保证多样性。
+
+------
+
+## 👥 贡献者
+
+- Project Owner:刘畅，Nelly-se
+
+------
+
+*Last Updated: 2026-02-15*

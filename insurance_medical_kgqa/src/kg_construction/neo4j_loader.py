@@ -71,10 +71,10 @@ class Neo4jLoader:
             logger.error(f"Data directory not found: {data_cleaned_dir}")
             return
 
-        self._load_diseases(data_cleaned_dir / "中老年疾病目录" / "diseases.json")
-        self._load_drugs(data_cleaned_dir / "医保药品目录" / "medicine.json")
-        self._load_nursing_homes(data_cleaned_dir / "养老机构数据" / "nursing_homes.csv")
-        self._load_insurances(data_cleaned_dir / "医疗保险数据" / "insurance_info.json")
+        self._load_diseases(data_cleaned_dir / "Diseases" / "diseases.json")
+        self._load_drugs(data_cleaned_dir / "Drugs" / "medicine.json")
+        self._load_nursing_homes(data_cleaned_dir / "NursingHomes" / "nursing_homes.csv")
+        self._load_insurances(data_cleaned_dir / "Insurance" / "insurance_info.json")
 
     def _load_diseases(self, file_path: Path):
         if not file_path.exists():

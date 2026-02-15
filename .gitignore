@@ -1,8 +1,10 @@
 # 忽略环境配置文件
 .env
 .venv
+.venv311
 env/
 venv/
+venv311/
 __pycache__/
 *.pyc
 .DS_Store

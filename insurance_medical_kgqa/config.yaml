@@ -1,17 +1,17 @@
 neo4j:
   uri: "bolt://localhost:7687"
   username: "neo4j"
-  password: "${NEO4J_PASSWORD}" # Use environment variable
 
 llm:
-  model_type: "local"  # local 或 api
-  local_model_path: "./models/Qwen-1.8B-Chat"
-  
-OPENAI_API_KEY: "${OPENAI_API_KEY}" # Use environment variable
-OPENAI_BASE_URL: "https://api.deepseek.com"
+  model_type: "api"
+  api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  model_name: "qwen-turbo" # 阿里云上的模型名称
+
 data_sources:
   medical:
-    - "data/raw/icd_codes.csv"
-    - "data/raw/drugbank.json"
+    - "Datacleaned/Drugs/medicine.json"
+    - "DataCleaned/Diseases/diseases.json"
   insurance:
-    - "data/raw/insurance_products.csv"
+    - "Datacleaned/Insurance/insurance_info.json"
+  senior_care:
+    - "DataCleaned/NursingHomes/nursing_homes.csv" # 请确认你的文件名和路径
