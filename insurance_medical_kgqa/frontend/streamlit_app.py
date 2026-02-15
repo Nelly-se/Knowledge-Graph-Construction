@@ -113,79 +113,110 @@ def get_graph_stats():
         "Symptom": "2,000+"
     }
 
-def format_product_card(text_segment):
-    """
-    尝试将一段文本渲染为漂亮的卡片。
-    主要用于处理 '1. xxx保险' 这样的结构。
-    """
-    # 简单的正则提取标题，假设格式为 "1. 产品名" 或 "【产品名】"
-    title_match = re.match(r"^\d+\.\s*(.*)|【(.*)】", text_segment.split('\n')[0])
-    title = title_match.group(1) or title_match.group(2) if title_match else "推荐方案"
+# ==========================================
+# 修复点 1：消除 HTML 缩进，防止被解析为代码块
+# ==========================================
+# def format_product_card(text_segment):
+#     """
+#     渲染单个产品卡片。
+#     """
+#     # 1. 提取标题
+#     lines = text_segment.strip().split('\n')
+#     title_line = lines[0]
+#     # 尝试提取 "1. 蓝医保..." 中的 "蓝医保..."
+#     title_match = re.match(r"^\d+\.\s*(.*)|【(.*)】|\*\*(.*)\*\*", title_line)
     
-    # 提取剩余内容
-    content = "\n".join(text_segment.split('\n')[1:])
+#     if title_match:
+#         # 取匹配到的非空组
+#         title = next((g for g in title_match.groups() if g), "推荐方案")
+#         # 清理可能残留的 markdown 符号
+#         title = title.replace("**", "").strip()
+#     else:
+#         title = title_line.replace("**", "").strip() # 兜底清理
+
+#     # 2. 提取并格式化内容
+#     # 我们希望把 "- 投保年龄：" 这样的字段加粗显示
+#     content_lines = []
+#     for line in lines[1:]:
+#         line = line.strip()
+#         if not line: continue
+        
+#         # 正则匹配关键字段（支持冒号中文或英文）
+#         # 例如匹配 "- 投保年龄：" 或 "- 投保年龄:"
+#         line = re.sub(r"^[-*]\s*(.*?)([:：])", r"<b>\1\2</b>", line)
+#         content_lines.append(line)
     
-    # --- 修复点：先在外面处理换行符，不要在 f-string 里写 \n ---
-    content_html = content.replace('\n', '<br>')
-
-    # 使用 HTML/CSS 渲染卡片
-    st.markdown(f"""
-    <div class="product-card">
-        <div style="display: flex; align-items: center; margin-bottom: 10px;">
-            <span style="font-size: 24px; margin-right: 10px;">🛡️</span>
-            <h3 style="margin:0; color: #2E86DE;">{title}</h3>
-        </div>
-        <div style="color: #555; font-size: 16px;">
-            {content_html} 
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-def display_smart_answer(answer_text):
-    """
-    智能解析回答文本。
-    如果检测到列表结构（推荐多个产品），尝试拆分卡片展示。
-    否则展示标准文本卡片。
-    """
-    # 检查是否包含 "1. " 且 "2. " 这种列表结构，且是在推荐保险或养老院
-    if ("1." in answer_text and "2." in answer_text) and ("保险" in answer_text or "养老院" in answer_text):
-        st.markdown("### 为您甄选以下方案：")
-        
-        # 简单切分：按数字列表切分
-        # 注意：这只是一个简易的切分逻辑，依赖 LLM 输出格式比较规范
-        segments = re.split(r'(?=\n\d+\.)', answer_text)
-        
-        # 第一段通常是开场白
-        if segments and not re.match(r'\d+\.', segments[0].strip()):
-            st.markdown(f"<div style='margin-bottom:15px'>{segments[0]}</div>", unsafe_allow_html=True)
-            segments = segments[1:]
-            
-        # 渲染产品卡片
-        # === 修复点：确保 segments 不为空才创建列 ===
-        if len(segments) > 0:
-            # 动态计算列数，最多2列
-            num_cols = min(len(segments), 2)
-            cols = st.columns(num_cols)
-            
-            for i, seg in enumerate(segments):
-                if seg.strip():
-                    # 轮流在两列中渲染
-                    with cols[i % num_cols]:
-                        format_product_card(seg.strip())
-    else:
-        # --- 修复点：先在外面处理换行符 ---
-        answer_html = answer_text.replace('\n', '<br>')
-
-        # 普通回答，使用整体卡片
-        st.markdown(f"""
-        <div class="chat-card">
-            {answer_html}
-        </div>
-        """, unsafe_allow_html=True)
+#     # 合并内容
+#     content_html = "<br>".join(content_lines)
+    
+#     # 3. 构建 HTML (注意：这里不要有缩进，顶格写！)
+#     html_code = f"""
+# <div class="product-card">
+#     <div style="display: flex; align-items: center; margin-bottom: 10px;">
+#         <span style="font-size: 24px; margin-right: 10px;">🛡️</span>
+#         <h3 style="margin:0; color: #2E86DE;">{title}</h3>
+#     </div>
+#     <div style="color: #555; font-size: 16px; line-height: 1.6;">
+#         {content_html}
+#     </div>
+# </div>
+# """
+#     st.markdown(html_code, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 界面布局
+# 修复点 2：增强总结文字的剥离逻辑
 # ==========================================
+# def display_smart_answer(answer_text):
+#     """
+#     智能解析回答。
+#     """
+#     # 只有当包含 "1." 且 "2." 时才启用卡片模式
+#     if ("1." in answer_text and "2." in answer_text) and ("保险" in answer_text or "养老院" in answer_text):
+        
+#         # 按数字列表切分
+#         segments = re.split(r'(?=\n\d+\.)', answer_text)
+        
+#         # 1. 处理开场白
+#         if segments and not re.match(r'\d+\.', segments[0].strip()):
+#             st.markdown(f"<div style='margin-bottom:15px'>{segments[0]}</div>", unsafe_allow_html=True)
+#             segments = segments[1:]
+        
+#         # 2. 处理末尾总结 (关键修复)
+#         conclusion = ""
+#         if segments:
+#             last_seg = segments[-1]
+#             # 尝试通过“双换行”或关键词来切分总结
+#             if "\n\n" in last_seg:
+#                 parts = last_seg.rsplit("\n\n", 1)
+#                 # 如果切出来的后半段不包含列表项特征，就认定为总结
+#                 if len(parts) == 2 and not re.match(r'\d+\.', parts[1].strip()):
+#                     segments[-1] = parts[0]
+#                     conclusion = parts[1]
+#             elif "综上" in last_seg or "建议" in last_seg:
+#                 # 备用逻辑：如果最后一段话里有“综上”，尝试强行切分（可选）
+#                 pass
+
+#         # 3. 渲染卡片
+#         if len(segments) > 0:
+#             cols = st.columns(min(len(segments), 2))
+#             for i, seg in enumerate(segments):
+#                 if seg.strip():
+#                     with cols[i % len(cols)]:
+#                         format_product_card(seg.strip())
+
+#         # 4. 渲染总结
+#         if conclusion:
+#             st.info(conclusion) # 使用 info 样式展示总结，更清晰
+
+#     else:
+#         # 普通模式
+#         st.markdown(f"""
+# <div class="chat-card">
+# {answer_text.replace(chr(10), '<br>')}
+# </div>
+# """, unsafe_allow_html=True)
+
+ 
 
 # --- 侧边栏 ---
 with st.sidebar:
@@ -224,48 +255,60 @@ if "messages" not in st.session_state:
 # 展示历史消息
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
-        if msg["role"] == "assistant":
-            # 如果是历史消息，简化展示（或者也可以调用 smart_display）
-            st.markdown(msg["content"]) 
-            if "context" in msg and msg["context"]:
-                with st.expander("📚 查看参考来源 (知识图谱溯源)"):
+        # 核心修改：直接使用 st.markdown，不再调用 display_smart_answer
+        st.markdown(msg["content"])
+        
+        # 如果是 AI 回答且有 context，展示溯源信息
+        if msg["role"] == "assistant" and "context" in msg:
+            # 只有当 context 有实质内容时才显示
+            if msg["context"] and "已屏蔽" not in msg["context"] and "检索失败" not in msg["context"]:
+                 with st.expander("📚 参考来源 (Knowledge Context)"):
                     st.info(msg["context"])
-        else:
-            st.markdown(msg["content"])
 
 # --- 输入区域 ---
 prompt = st.chat_input("请描述您的情况，例如：70岁老人有高血压，推荐什么保险？")
 
-if prompt:
-    # 1. 展示用户提问
+# --- 2. 输入框与回答生成 (简化版) ---
+if prompt := st.chat_input("请输入您的问题..."):
+    # 添加用户消息
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # 2. 获取 AI 回答
+    # 获取 AI 回答
     with st.chat_message("assistant"):
         placeholder = st.empty()
         
-        with st.spinner("👩‍⚕️ 正在查阅知识库，为您分析最佳方案..."):
+        with st.spinner("👩‍⚕️ 正在分析您的需求..."):
             try:
-                # 调用后端 API
-                payload = {"query": prompt}
-                # 可以在这里把 temperature 传给后端（如果后端支持）
+                # 构造请求数据 (带历史记录)
+                # 限制历史记录长度，防止 Token 溢出
+                history_payload = [
+                    {"role": m["role"], "content": m["content"]} 
+                    for m in st.session_state.messages[:-1]
+                ][-6:] # 只取最近6条
+
+                payload = {
+                    "query": prompt,
+                    "history": history_payload
+                }
                 
+                # 调用后端
                 response = requests.post(API_URL, json=payload, timeout=60)
                 
                 if response.status_code == 200:
                     data = response.json()
-                    answer = data.get("answer", "抱歉，我没有理解您的问题。")
+                    answer = data.get("answer", "抱歉，由于网络原因未能生成回答。")
                     context = data.get("context", "")
                     
-                    # 使用智能卡片展示
-                    display_smart_answer(answer)
+                    # 核心修改：直接渲染 Markdown
+                    # Streamlit 会自动把 **加粗** 渲染得很好看
+                    placeholder.markdown(answer)
                     
-                    # 溯源信息
-                    if context and len(context) > 10:
-                        with st.expander("📚 知识图谱溯源 (Evidence)"):
-                            st.markdown(f"**检索到的关联信息：**\n\n{context}")
+                    # 展示溯源
+                    if context and "已屏蔽" not in context and len(str(context)) > 5:
+                        with st.expander("📚 参考来源 (Knowledge Context)"):
+                            st.info(context)
                     
                     # 保存到历史
                     st.session_state.messages.append({
@@ -274,130 +317,8 @@ if prompt:
                         "context": context
                     })
                 else:
-                    st.error(f"服务暂时不可用 (状态码: {response.status_code})")
+                    err_msg = f"服务暂时不可用 (状态码: {response.status_code})"
+                    placeholder.error(err_msg)
                     
             except Exception as e:
-                st.error(f"发生连接错误: {e}")
-                st.markdown("请检查后端服务 `uvicorn` 是否已启动。")
-
-
-
-# # Streamlit 前端：问答界面，调用后端 API
-# """
-# 运行方式（在项目根目录）：
-#     streamlit run frontend/streamlit_app.py
-# """
-# import streamlit as st
-# import requests  # 新增：用于发送 API 请求
-# from typing import Optional
-
-# # 后端 API 基础 URL
-# API_BASE = "http://127.0.0.1:8000"  # 建议使用明确的 IP 而非 localhost，避免某些网络解析问题
-
-
-# def call_qa_api(question: str, max_hops: int = 2, temperature: float = 0.7) -> Optional[dict]:
-#     """
-#     调用后端 POST /qa 接口。
-#     """
-#     url = f"{API_BASE}/chat"
-#     payload = {
-#         "query": question,
-#         # "max_hops": max_hops,
-#         # "temperature": temperature
-#     }
-    
-#     try:
-#         # 发送 POST 请求
-#         response = requests.post(url, json=payload, timeout=60) # 设置超时防止无限等待
-        
-#         if response.status_code == 200:
-#             data= response.json();
-#             return {
-#                 "answer": data.get("answer"),
-#                 "graph_context": data.get("context"), # 将后端的 context 映射过来
-#                 "sources": [] # 目前后端没有返回结构化的 sources，先给空列表防止前端报错
-#             }
-#         else:
-#             st.error(f"API 请求失败，状态码：{response.status_code}")
-#             st.text(response.text) # 显示后端返回的错误详情
-#             return None
-            
-#     except requests.exceptions.ConnectionError:
-#         st.error(f"无法连接到后端 ({url})。请确认后端服务已启动。")
-#         return None
-#     except Exception as e:
-#         st.error(f"发生错误: {str(e)}")
-#         return None
-
-
-# def render_sidebar():
-#     """侧边栏：配置参数"""
-#     st.sidebar.title("设置")
-    
-#     # 让用户可以动态调整参数
-#     max_hops = st.sidebar.slider("图谱检索跳数 (max_hops)", min_value=1, max_value=5, value=2)
-#     temperature = st.sidebar.slider("模型温度 (temperature)", min_value=0.0, max_value=1.0, value=0.7)
-    
-#     return max_hops, temperature
-
-
-# def render_main(max_hops, temperature) -> None:
-#     """主区域：问题输入、发送、答案展示。"""
-#     st.title("保险+医养知识图谱问答")
-#     st.caption("基于 GraphRAG 的跨领域问答")
-
-#     # 问题输入框
-#     question = st.text_area("请输入您的问题", height=100, placeholder="例如：70岁老人推荐哪些重疾保险？")
-    
-#     col1, col2 = st.columns([1, 5])
-#     with col1:
-#         submitted = st.button("提交")
-#     with col2:
-#         # 添加一个清空按钮（可选优化）
-#         if st.button("重置"):
-#             st.rerun()
-
-#     if submitted and question.strip():
-#         with st.spinner("正在分析意图并检索知识图谱..."):
-#             # 真正调用 API
-#             result = call_qa_api(question.strip(), max_hops, temperature)
-            
-#             if result:
-#                 # 1. 展示最终回答
-#                 st.subheader("🤖 AI 回答")
-#                 st.markdown(result.get("answer", "未返回回答"))
-                
-#                 st.divider()
-                
-#                 # 2. 展示参考来源（Sources）- 使用折叠面板保持界面整洁
-#                 with st.expander("📚 参考来源 (三元组 evidence)"):
-#                     sources = result.get("sources", [])
-#                     if sources:
-#                         st.dataframe(sources, column_config={
-#                             "0": "头实体",
-#                             "1": "关系",
-#                             "2": "尾实体"
-#                         }, use_container_width=True)
-#                     else:
-#                         st.write("无明确图谱来源")
-
-#                 # 3. 展示图谱上下文（可选调试信息）
-#                 if "graph_context" in result:
-#                     with st.expander("🕸️ 图谱检索上下文 (Debug)"):
-#                         st.text(result["graph_context"])
-                        
-#     elif submitted:
-#         st.warning("请输入问题内容。")
-
-
-# def main() -> None:
-#     """应用入口。"""
-#     # 获取侧边栏配置
-#     max_hops, temperature = render_sidebar()
-#     # 渲染主界面，并传入配置
-#     render_main(max_hops, temperature)
-
-
-# if __name__ == "__main__":
-#     st.set_page_config(page_title="KG-RAG 问答系统", layout="wide") # 宽屏模式体验更好
-#     main()
+                placeholder.error(f"发生连接错误: {e}")

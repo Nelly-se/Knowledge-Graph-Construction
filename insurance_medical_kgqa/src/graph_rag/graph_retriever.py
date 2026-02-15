@@ -106,117 +106,76 @@ class GraphRetriever:
             # ==========================================
             # === 修改点：增强版保险精准检索逻辑 ===
             # ==========================================
+            # ==========================================
+            # === 修改后的保险检索逻辑：优先关键词匹配 ===
+            # ==========================================
             if intent == "insurance_query":
-                # 1. 动态确定要搜索的关键词
-                # 默认搜所有，但如果用户提到了特定险种，就只搜那个险种
-                target_category = "保险" # 默认宽泛搜索
-                search_condition = ""
+                # 1. 获取原始问题文本
+                raw_query = parsed_query.get("raw_query", "")
                 
-                # 简单粗暴的关键词匹配逻辑
-                # 注意：这里需要确保 parsed_query 传递了原始问题 text，或者我们在 retrieve 里自己加参数
-                # 假设 parsed_query 里没有 raw_question，我们这里用 intent 结合 disease 推断，或者硬编码几个分类
+                # 2. 动态构建 Cypher 查询
+                # 逻辑：如果问题里包含具体的系列名（如"蓝医保"），就优先搜它
+                # 否则才去搜泛泛的"医疗"、"重疾"
                 
-                # 更稳妥的方式：直接在 Cypher 里用 OR 匹配多个常见分类，或者让 LLM 提取出 insurance_type
+                specific_keyword = ""
+                # 这里可以根据你的业务数据扩展常见系列名
+                known_series = ["蓝医保", "好医保", "金医保", "平安", "众安", "长相安"]
+                for series in known_series:
+                    if series in raw_query:
+                        specific_keyword = series
+                        break
                 
-                # 这里我们演示一种“混合过滤”写法：
-                cypher_general_ins = """
-                MATCH (i:Insurance)
-                WHERE 1=1 
-                """
-                
-                # 如果用户问的是“重疾”
-                # 注意：这里我们假设 parsed_query 应该包含用户原始 query 里的关键词，
-                # 但为了简单，我们直接在 Cypher 里做更聪明的匹配。
-                
-                # 真正的解决方案：根据意图过滤。
-                # 由于你的 QueryParser 可能比较简单，我们这里用一种“广撒网但分类返回”的策略。
-                
-                cypher_general_ins = """
-                MATCH (i:Insurance)
-                // 只有当产品名称或分类包含‘重疾’、‘医疗’、‘意外’、‘护理’时才返回，避免返回无关的
-                WHERE i.name CONTAINS '重疾' OR i.name CONTAINS '医疗' OR i.name CONTAINS '护理' OR i.name CONTAINS '防癌'
-                RETURN i.name as name, 
-                       i.age_limit as age_limit, 
-                       i.description as desc,
-                       i.category as category,
-                       i.price as price
-                ORDER BY rand()  // <--- 【新增】每次随机打乱顺序
-                LIMIT 20
-                """
-                
-                gen_results = session.run(cypher_general_ins)
+                if specific_keyword:
+                    # === 场景 A: 精准狙击 ===
+                    # 用户提到了具体系列，直接 CONTAINS 那个系列名
+                    logger.info(f"🔍 检测到特定产品系列: {specific_keyword}，执行精准检索")
+                    cypher_ins = f"""
+                    MATCH (i:Insurance)
+                    WHERE i.name CONTAINS '{specific_keyword}'
+                    RETURN i.name as name, 
+                           i.age_limit as age_limit, 
+                           i.description as desc,
+                           i.category as category,
+                           i.price as price
+                    LIMIT 6  // 精准搜索时 LIMIT 可以大一点，确保该系列全覆盖
+                    """
+                else:
+                    # === 场景 B: 泛泛搜索 (保留原有逻辑) ===
+                    # 用户只说了"推荐个保险"，那就随机推荐
+                    logger.info("🔍 未检测到特定系列，执行通用随机检索")
+                    cypher_ins = """
+                    MATCH (i:Insurance)
+                    WHERE i.name CONTAINS '重疾' OR i.name CONTAINS '医疗' OR i.name CONTAINS '护理' OR i.name CONTAINS '防癌'
+                    RETURN i.name as name, 
+                           i.age_limit as age_limit, 
+                           i.description as desc,
+                           i.category as category,
+                           i.price as price
+                    ORDER BY rand()
+                    LIMIT 20
+                    """
+
+                # 执行查询
+                gen_results = session.run(cypher_ins)
                 
                 ins_data = []
                 for r in gen_results:
                     ins_data.append({
                         "name": r['name'],
-                        "category": r.get('category', '未知'), # 数据库里可能叫 '险种分类'，请核对属性名
+                        "category": r.get('category', '未知'),
                         "age_limit": r['age_limit'],
                         "desc": r['desc']
                     })
-
-                # --- Python 层的二次过滤 (这是解决你问题的关键) ---
-                # 既然 Cypher 处理字符串比较弱，我们在 Python 里帮它一把
                 
+                # 格式化输出给 LLM
                 filtered_ins_list = []
-                user_question_keywords = str(parsed_query).replace("'", "").replace('"', "") # 简易获取上下文里的字
-                
-                # 简单的分类器
-                is_looking_for_critical = "重疾" in str(parsed_query) or "重大疾病" in str(parsed_query)
-                is_looking_for_medical = "医疗" in str(parsed_query)
-                
                 for item in ins_data:
-                    # 1. 类型过滤：如果用户明确问重疾，就不要给医疗
-                    if is_looking_for_critical and "医疗" in item['name'] and "重疾" not in item['name']:
-                        continue
-                    if is_looking_for_medical and "重疾" in item['name']:
-                        continue
-                        
-                    # 2. 格式化
                     item_str = f"【产品】{item['name']}\n   - 险种: {item['category']}\n   - 投保年龄: {item['age_limit']}\n   - 描述: {item['desc'][:50]}..."
                     filtered_ins_list.append(item_str)
                 
                 if filtered_ins_list:
-                    # 提示词很重要：告诉 LLM 我给你的是一大堆，你要自己挑
-                    context_parts.append(f"【保险产品库】(注意：请严格根据用户的年龄 {age} 岁和需求筛选以下产品，不要推荐年龄不符的产品):\n" + "\n".join(filtered_ins_list))
-            # === 新增逻辑：3. 通用保险/关键词检索 (关键修改) ===
-            # ==========================================
-            # 如果意图是查保险，不仅查关联疾病的，还要把所有相关的险种捞出来让 LLM 筛选
-            # if intent == "insurance_query":
-            #     # 提取关键词，比如用户问“医疗险”，我们就查 name 包含“医疗”的产品
-            #     # 这里做一个简单的规则：如果问题包含“医疗”，就搜“医疗”；包含“重疾”，搜“重疾”
-            #     keywords = []
-            #     # 注意：这里需要根据你的实际数据情况调整关键词
-            #     # 假设你的产品名称里包含 "医疗", "重疾", "护理" 等词
-            #     base_query_keywords = ["医疗", "重疾", "护理", "意外", "寿险"]
-                
-            #     # 简单的关键词匹配逻辑（也可以依赖 QueryParser 解析出的关键词）
-            #     # 这里为了演示，我们直接查所有保险，按相关性排序
-                
-            #     cypher_general_ins = """
-            #     MATCH (i:Insurance)
-            #     WHERE i.name CONTAINS '医疗' OR i.category CONTAINS '医疗'  // 扩大搜索范围
-            #     RETURN i.name as name, 
-            #            i.age_limit as age_limit, 
-            #            i.description as desc,
-            #            i.category as category
-            #     LIMIT 10
-            #     """
-                
-            #     # 如果用户明确问了“重疾”，就改查重疾
-            #     # 实际项目中，这里应该用 parsed_query.get('keywords')
-                
-            #     gen_results = session.run(cypher_general_ins)
-                
-            #     gen_ins_list = []
-            #     for r in gen_results:
-            #         # 格式化成一段文本，包含最重要的“年龄限制”
-            #         item_str = f"【产品】{r['name']}\n   - 类型: {r['category']}\n   - 承保年龄: {r['age_limit']}\n   - 描述: {r['desc']}"
-            #         gen_ins_list.append(item_str)
-                
-            #     if gen_ins_list:
-            #         context_parts.append(f"【热门医疗保险列表】(请根据用户的年龄 {age} 岁自行筛选合适的):\n" + "\n".join(gen_ins_list))
-            
+                    context_parts.append(f"【保险产品库】(已根据关键词 '{specific_keyword or '通用'}' 筛选):\n" + "\n".join(filtered_ins_list))
+             
             
             # === 修改点 2: 修复养老院检索逻辑 ===
             # 只要意图是找养老院，或者查询中包含了城市/价格，就触发检索
